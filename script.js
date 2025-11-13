@@ -740,7 +740,7 @@ class AlarmApp {
         // Keep focus on the page
         window.focus();
         
-        // Continuously ensure sleep lock stays active
+        // Continuously ensure sleep lock stays active - check more frequently
         this.sleepLockCheckInterval = setInterval(() => {
             if (this.sleepLockActive) {
                 // Re-apply sleep lock if somehow it got disabled
@@ -752,6 +752,8 @@ class AlarmApp {
                 // Re-block all elements
                 document.body.style.pointerEvents = 'none';
                 document.body.style.touchAction = 'none';
+                document.documentElement.style.pointerEvents = 'none';
+                document.documentElement.style.touchAction = 'none';
                 sleepLock.style.pointerEvents = 'auto';
                 
                 // Re-hide container
@@ -761,12 +763,37 @@ class AlarmApp {
                 }
                 
                 // Re-enter fullscreen if exited
-                if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+                if (!document.fullscreenElement && !document.webkitFullscreenElement && 
+                    !document.mozFullScreenElement && !document.msFullscreenElement) {
+                    this.enterFullscreen();
+                }
+                
+                // Aggressively keep focus and prevent tab switching
+                if (document.hidden) {
+                    // Tab was switched - try to bring it back
+                    window.focus();
                     this.enterFullscreen();
                 }
                 
                 // Keep focus
                 window.focus();
+                
+                // Re-block all buttons and inputs
+                const allButtons = document.querySelectorAll('button');
+                allButtons.forEach(btn => {
+                    if (btn.id !== 'deactivationBtn') {
+                        btn.style.pointerEvents = 'none';
+                        btn.disabled = true;
+                    }
+                });
+                
+                const allInputs = document.querySelectorAll('input, textarea, select');
+                allInputs.forEach(input => {
+                    if (input.id !== 'challengeAnswer' || !document.getElementById('alarmModal')?.classList.contains('show')) {
+                        input.style.pointerEvents = 'none';
+                        input.disabled = true;
+                    }
+                });
             } else {
                 // Clear interval if sleep lock is deactivated
                 if (this.sleepLockCheckInterval) {
@@ -774,7 +801,7 @@ class AlarmApp {
                     this.sleepLockCheckInterval = null;
                 }
             }
-        }, 1000); // Check every second
+        }, 250); // Check every 250ms for more aggressive monitoring
     }
 
     deactivateSleepLock() {
@@ -871,6 +898,12 @@ class AlarmApp {
         if (this.handlePopStateBound) {
             window.removeEventListener('popstate', this.handlePopStateBound);
         }
+        if (this.handleFullscreenChangeBound) {
+            document.removeEventListener('fullscreenchange', this.handleFullscreenChangeBound);
+            document.removeEventListener('webkitfullscreenchange', this.handleFullscreenChangeBound);
+            document.removeEventListener('mozfullscreenchange', this.handleFullscreenChangeBound);
+            document.removeEventListener('MSFullscreenChange', this.handleFullscreenChangeBound);
+        }
         
         // Restore browser shortcuts
         this.restoreBrowserShortcuts();
@@ -908,27 +941,53 @@ class AlarmApp {
 
     enterFullscreen() {
         const element = document.documentElement;
-        // Try different fullscreen methods for cross-browser support
-        if (element.requestFullscreen) {
-            element.requestFullscreen().catch(err => {
-                console.log('Fullscreen request failed:', err);
-            });
-        } else if (element.webkitRequestFullscreen) {
-            element.webkitRequestFullscreen();
-        } else if (element.webkitEnterFullscreen) {
-            element.webkitEnterFullscreen();
-        } else if (element.mozRequestFullScreen) {
-            element.mozRequestFullScreen();
-        } else if (element.msRequestFullscreen) {
-            element.msRequestFullscreen();
-        }
+        // Try different fullscreen methods for cross-browser support - try multiple times
+        const tryFullscreen = () => {
+            if (element.requestFullscreen) {
+                element.requestFullscreen().catch(err => {
+                    // Try again
+                    setTimeout(tryFullscreen, 100);
+                });
+            } else if (element.webkitRequestFullscreen) {
+                element.webkitRequestFullscreen();
+            } else if (element.webkitEnterFullscreen) {
+                element.webkitEnterFullscreen();
+            } else if (element.mozRequestFullScreen) {
+                element.mozRequestFullScreen();
+            } else if (element.msRequestFullscreen) {
+                element.msRequestFullscreen();
+            }
+        };
+        
+        tryFullscreen();
+        
+        // Try again after a short delay
+        setTimeout(tryFullscreen, 100);
+        setTimeout(tryFullscreen, 500);
         
         // For mobile, also try to lock screen orientation
         if (screen.orientation && screen.orientation.lock) {
             screen.orientation.lock('portrait').catch(err => {
-                console.log('Orientation lock failed:', err);
+                // Try again
+                setTimeout(() => {
+                    if (screen.orientation && screen.orientation.lock) {
+                        screen.orientation.lock('portrait').catch(() => {});
+                    }
+                }, 100);
             });
         }
+        
+        // Also try to prevent exit from fullscreen
+        document.addEventListener('fullscreenchange', this.handleFullscreenChangeBound = () => {
+            if (this.sleepLockActive && !document.fullscreenElement && !document.webkitFullscreenElement) {
+                // User exited fullscreen - force it back
+                setTimeout(() => this.enterFullscreen(), 100);
+            }
+        });
+        
+        document.addEventListener('webkitfullscreenchange', this.handleFullscreenChangeBound);
+        document.addEventListener('mozfullscreenchange', this.handleFullscreenChangeBound);
+        document.addEventListener('MSFullscreenChange', this.handleFullscreenChangeBound);
     }
 
     exitFullscreen() {
@@ -1080,24 +1139,56 @@ class AlarmApp {
 
     handleVisibilityChange() {
         if (this.sleepLockActive) {
-            // If user switched tabs, bring focus back
+            // If user switched tabs, aggressively bring focus back
             if (document.hidden) {
-                // Try to bring focus back
+                // Immediately try to bring focus back
                 setTimeout(() => {
                     window.focus();
                     this.enterFullscreen();
-                }, 100);
+                    // Try multiple times to ensure it works
+                    setTimeout(() => {
+                        window.focus();
+                        this.enterFullscreen();
+                    }, 50);
+                    setTimeout(() => {
+                        window.focus();
+                        this.enterFullscreen();
+                    }, 200);
+                }, 10);
+                
+                // Show alert/warning (browser may block this, but try anyway)
+                try {
+                    alert('Sleep mode is active. Please return to this tab.');
+                } catch(e) {
+                    // Alert blocked, continue
+                }
+            } else {
+                // Page is visible - ensure fullscreen and focus
+                window.focus();
+                this.enterFullscreen();
             }
         }
     }
 
     handleBlur() {
         if (this.sleepLockActive) {
-            // Bring focus back to the window
+            // Aggressively bring focus back to the window
+            setTimeout(() => {
+                window.focus();
+                this.enterFullscreen();
+            }, 10);
+            setTimeout(() => {
+                window.focus();
+                this.enterFullscreen();
+            }, 50);
             setTimeout(() => {
                 window.focus();
                 this.enterFullscreen();
             }, 100);
+            setTimeout(() => {
+                window.focus();
+                this.enterFullscreen();
+            }, 200);
         }
     }
 
@@ -1130,26 +1221,32 @@ class AlarmApp {
             if (!this.sleepLockActive) return;
             
             // Block Cmd/Ctrl + W (close tab)
-            if ((e.metaKey || e.ctrlKey) && e.key === 'w') {
+            if ((e.metaKey || e.ctrlKey) && (e.key === 'w' || e.key === 'W')) {
                 e.preventDefault();
                 e.stopPropagation();
                 e.stopImmediatePropagation();
+                window.focus();
+                this.enterFullscreen();
                 return false;
             }
             
             // Block Cmd/Ctrl + T (new tab)
-            if ((e.metaKey || e.ctrlKey) && e.key === 't') {
+            if ((e.metaKey || e.ctrlKey) && (e.key === 't' || e.key === 'T')) {
                 e.preventDefault();
                 e.stopPropagation();
                 e.stopImmediatePropagation();
+                window.focus();
+                this.enterFullscreen();
                 return false;
             }
             
             // Block Cmd/Ctrl + N (new window)
-            if ((e.metaKey || e.ctrlKey) && e.key === 'n') {
+            if ((e.metaKey || e.ctrlKey) && (e.key === 'n' || e.key === 'N')) {
                 e.preventDefault();
                 e.stopPropagation();
                 e.stopImmediatePropagation();
+                window.focus();
+                this.enterFullscreen();
                 return false;
             }
             
@@ -1158,6 +1255,8 @@ class AlarmApp {
                 e.preventDefault();
                 e.stopPropagation();
                 e.stopImmediatePropagation();
+                window.focus();
+                this.enterFullscreen();
                 return false;
             }
             
@@ -1166,41 +1265,70 @@ class AlarmApp {
                 e.preventDefault();
                 e.stopPropagation();
                 e.stopImmediatePropagation();
+                window.focus();
+                this.enterFullscreen();
                 return false;
             }
             
             // Block F5 and Ctrl+R (refresh)
-            if (e.key === 'F5' || ((e.metaKey || e.ctrlKey) && e.key === 'r')) {
+            if (e.key === 'F5' || ((e.metaKey || e.ctrlKey) && (e.key === 'r' || e.key === 'R'))) {
                 e.preventDefault();
                 e.stopPropagation();
                 e.stopImmediatePropagation();
+                window.focus();
+                this.enterFullscreen();
+                return false;
+            }
+            
+            // Block Escape (exit fullscreen)
+            if (e.key === 'Escape' && this.sleepLockActive) {
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+                this.enterFullscreen();
                 return false;
             }
         };
         
         document.addEventListener('keydown', this.blockBrowserShortcutsBound, true);
         document.addEventListener('keyup', this.blockBrowserShortcutsBound, true);
+        document.addEventListener('keypress', this.blockBrowserShortcutsBound, true);
         
         // Block beforeunload to prevent navigation
         this.beforeUnloadBound = (e) => {
             if (this.sleepLockActive) {
                 e.preventDefault();
-                e.returnValue = '';
-                return '';
+                e.returnValue = 'Sleep mode is active. Are you sure you want to leave?';
+                return e.returnValue;
             }
         };
         window.addEventListener('beforeunload', this.beforeUnloadBound);
+        
+        // Block pagehide to prevent navigation
+        this.pageHideBound = (e) => {
+            if (this.sleepLockActive) {
+                e.preventDefault();
+                window.focus();
+                this.enterFullscreen();
+            }
+        };
+        window.addEventListener('pagehide', this.pageHideBound);
     }
 
     restoreBrowserShortcuts() {
         if (this.blockBrowserShortcutsBound) {
             document.removeEventListener('keydown', this.blockBrowserShortcutsBound, true);
             document.removeEventListener('keyup', this.blockBrowserShortcutsBound, true);
+            document.removeEventListener('keypress', this.blockBrowserShortcutsBound, true);
             this.blockBrowserShortcutsBound = null;
         }
         if (this.beforeUnloadBound) {
             window.removeEventListener('beforeunload', this.beforeUnloadBound);
             this.beforeUnloadBound = null;
+        }
+        if (this.pageHideBound) {
+            window.removeEventListener('pagehide', this.pageHideBound);
+            this.pageHideBound = null;
         }
     }
 
