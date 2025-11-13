@@ -260,7 +260,10 @@ class AlarmApp {
 
         // Check and activate sleep lock if needed
         if (this.sleepLockActive) {
-            this.activateSleepLock();
+            // Small delay to ensure DOM is ready
+            setTimeout(() => {
+                this.activateSleepLock();
+            }, 100);
         }
 
         // Update sleep countdown
@@ -643,13 +646,52 @@ class AlarmApp {
         // Prevent ALL interaction with the app - only sleep lock is accessible
         document.body.style.pointerEvents = 'none';
         document.body.style.touchAction = 'none';
-        sleepLock.style.pointerEvents = 'auto';
+        document.body.style.overflow = 'hidden';
+        document.documentElement.style.overflow = 'hidden';
+        document.documentElement.style.pointerEvents = 'none';
+        document.documentElement.style.touchAction = 'none';
         
-        // Hide all other content
+        // Only allow sleep lock to be interactive
+        sleepLock.style.pointerEvents = 'auto';
+        sleepLock.style.touchAction = 'auto';
+        
+        // Hide ALL other content and modals
         const container = document.querySelector('.container');
         if (container) {
             container.style.display = 'none';
+            container.style.pointerEvents = 'none';
         }
+        
+        // Hide all modals except sleep lock
+        const allModals = document.querySelectorAll('.modal');
+        allModals.forEach(modal => {
+            if (modal.id !== 'sleepLock') {
+                modal.style.display = 'none';
+                modal.style.pointerEvents = 'none';
+                modal.classList.remove('show');
+            }
+        });
+        
+        // Block all buttons, inputs, and interactive elements
+        const allButtons = document.querySelectorAll('button');
+        allButtons.forEach(btn => {
+            if (btn.id !== 'deactivationBtn') {
+                btn.style.pointerEvents = 'none';
+                btn.disabled = true;
+            }
+        });
+        
+        const allInputs = document.querySelectorAll('input, textarea, select');
+        allInputs.forEach(input => {
+            input.style.pointerEvents = 'none';
+            input.disabled = true;
+        });
+        
+        // Block all links
+        const allLinks = document.querySelectorAll('a');
+        allLinks.forEach(link => {
+            link.style.pointerEvents = 'none';
+        });
         
         // Update deactivation count display
         this.updateDeactivationCountDisplay();
@@ -697,6 +739,42 @@ class AlarmApp {
         
         // Keep focus on the page
         window.focus();
+        
+        // Continuously ensure sleep lock stays active
+        this.sleepLockCheckInterval = setInterval(() => {
+            if (this.sleepLockActive) {
+                // Re-apply sleep lock if somehow it got disabled
+                const sleepLock = document.getElementById('sleepLock');
+                if (sleepLock && !sleepLock.classList.contains('active')) {
+                    sleepLock.classList.add('active');
+                }
+                
+                // Re-block all elements
+                document.body.style.pointerEvents = 'none';
+                document.body.style.touchAction = 'none';
+                sleepLock.style.pointerEvents = 'auto';
+                
+                // Re-hide container
+                const container = document.querySelector('.container');
+                if (container && container.style.display !== 'none') {
+                    container.style.display = 'none';
+                }
+                
+                // Re-enter fullscreen if exited
+                if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+                    this.enterFullscreen();
+                }
+                
+                // Keep focus
+                window.focus();
+            } else {
+                // Clear interval if sleep lock is deactivated
+                if (this.sleepLockCheckInterval) {
+                    clearInterval(this.sleepLockCheckInterval);
+                    this.sleepLockCheckInterval = null;
+                }
+            }
+        }, 1000); // Check every second
     }
 
     deactivateSleepLock() {
@@ -714,6 +792,9 @@ class AlarmApp {
         document.body.style.position = '';
         document.body.style.width = '';
         document.body.style.overflow = '';
+        document.documentElement.style.overflow = '';
+        document.documentElement.style.pointerEvents = 'auto';
+        document.documentElement.style.touchAction = '';
         
         // Show container again
         const container = document.querySelector('.container');
@@ -721,6 +802,35 @@ class AlarmApp {
             container.style.display = '';
             container.style.pointerEvents = 'auto';
         }
+        
+        // Show all modals again
+        const allModals = document.querySelectorAll('.modal');
+        allModals.forEach(modal => {
+            if (modal.id !== 'sleepLock') {
+                modal.style.display = '';
+                modal.style.pointerEvents = 'auto';
+            }
+        });
+        
+        // Re-enable all buttons
+        const allButtons = document.querySelectorAll('button');
+        allButtons.forEach(btn => {
+            btn.style.pointerEvents = 'auto';
+            btn.disabled = false;
+        });
+        
+        // Re-enable all inputs
+        const allInputs = document.querySelectorAll('input, textarea, select');
+        allInputs.forEach(input => {
+            input.style.pointerEvents = 'auto';
+            input.disabled = false;
+        });
+        
+        // Re-enable all links
+        const allLinks = document.querySelectorAll('a');
+        allLinks.forEach(link => {
+            link.style.pointerEvents = 'auto';
+        });
         
         // Restore all interactive elements
         const allElements = document.querySelectorAll('*');
@@ -764,6 +874,12 @@ class AlarmApp {
         
         // Restore browser shortcuts
         this.restoreBrowserShortcuts();
+        
+        // Clear sleep lock check interval
+        if (this.sleepLockCheckInterval) {
+            clearInterval(this.sleepLockCheckInterval);
+            this.sleepLockCheckInterval = null;
+        }
         
         // Allow back navigation again
         if (window.history.length > 1) {
@@ -895,12 +1011,22 @@ class AlarmApp {
         if (this.sleepLockActive) {
             const target = e.target;
             
+            // Check if target is within sleep lock
+            const sleepLock = document.getElementById('sleepLock');
+            if (!sleepLock || !sleepLock.contains(target)) {
+                // Block ALL interactions outside sleep lock
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+                return false;
+            }
+            
             // ONLY allow deactivation button - nothing else
             if (target.id === 'deactivationBtn' || target.closest('#deactivationBtn')) {
                 return true;
             }
             
-            // Block EVERYTHING else
+            // Block EVERYTHING else even within sleep lock
             e.preventDefault();
             e.stopPropagation();
             e.stopImmediatePropagation();
@@ -926,12 +1052,22 @@ class AlarmApp {
         if (this.sleepLockActive) {
             const target = e.target;
             
+            // Check if target is within sleep lock
+            const sleepLock = document.getElementById('sleepLock');
+            if (!sleepLock || !sleepLock.contains(target)) {
+                // Block ALL touch interactions outside sleep lock
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+                return false;
+            }
+            
             // ONLY allow deactivation button - nothing else
             if (target.id === 'deactivationBtn' || target.closest('#deactivationBtn')) {
                 return true;
             }
             
-            // Block ALL touch interactions
+            // Block ALL other touch interactions even within sleep lock
             e.preventDefault();
             e.stopPropagation();
             e.stopImmediatePropagation();

@@ -385,11 +385,13 @@ header h1 {
 .sleep-lock {
     display: none;
     position: fixed;
-    z-index: 999999;
+    z-index: 2147483647;
     left: 0;
     top: 0;
-    width: 100%;
-    height: 100%;
+    width: 100vw;
+    height: 100vh;
+    min-width: 100%;
+    min-height: 100%;
     background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
     color: white;
     animation: fadeIn 0.5s;
@@ -397,12 +399,11 @@ header h1 {
     -webkit-user-select: none;
     -moz-user-select: none;
     -ms-user-select: none;
-<<<<<<< HEAD
     touch-action: none;
     -webkit-touch-callout: none;
     overscroll-behavior: none;
-=======
->>>>>>> 0254b19 (Update sleep mode alarm app with mobile optimizations and fixes)
+    will-change: transform;
+    transform: translateZ(0);
 }
 
 .sleep-lock.active {
@@ -415,14 +416,18 @@ header h1 {
     text-align: center;
     padding: 40px;
     position: relative;
-    z-index: 1000000;
+    z-index: 2147483647;
+    pointer-events: auto;
+    touch-action: auto;
 }
 
 .sleep-lock-content #deactivationBtn {
     position: relative;
-    z-index: 1000001;
+    z-index: 2147483647;
     pointer-events: auto !important;
     cursor: pointer !important;
+    touch-action: manipulation !important;
+    -webkit-tap-highlight-color: rgba(255, 255, 255, 0.3);
 }
 
 .sleep-lock-content h2 {
